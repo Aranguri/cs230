@@ -1,16 +1,18 @@
+import time
 import numpy as np
 import torch
 from torch import nn, optim
 from torch.autograd import Variable
 import copy
+import matplotlib.pyplot as plt
 
 training_size = 10000
 vector_dim = 100
-h1_size, h2_size = 300, 300
+h1_size, h2_size = 100, 100
 
 vectors = np.random.uniform(-1, 1, (training_size, 1, vector_dim))
-vectors /= vectors.std()
-noise = np.random.randn(training_size, 2, vector_dim)
+vectors = [v / v.std() for v in vectors]
+noise = np.random.randn(training_size, 2, vector_dim) * .5
 
 noisy_vectors = vectors + noise
 correct_vectors = noisy_vectors.reshape(training_size, 2 * vector_dim)
@@ -25,7 +27,8 @@ np.random.shuffle(input_tuples)
 
 inputs, targets = input_tuples.reshape(100, 200, 2).T
 
-model = nn.Sequential(
+
+model1 = nn.Sequential(
     nn.Linear(2 * vector_dim, h1_size),
     nn.ReLU(),
     nn.Linear(h1_size, h2_size),
@@ -34,29 +37,57 @@ model = nn.Sequential(
     nn.Sigmoid()
 )
 
+model2 = nn.Sequential(
+    nn.Linear(3 * vector_dim, h1_size),
+    nn.ReLU(),
+    nn.Linear(h1_size, h2_size),
+    nn.ReLU(),
+    nn.Linear(h2_size, 1),
+    nn.Sigmoid()
+)
+
 loss_acc = np.zeros(100000)
-for j in range(1000):
-    for i, (input, target) in enumerate(zip(inputs, targets)):
-        optimizer = optim.Adam(model.parameters())
-        optimizer.zero_grad()
+xs = [[], []]
+ys = [[], []]
 
-        input = np.array([np.array(v) for v in input])
-        v1, v2 = np.split(input, 2, 1)
-        v3 = v1 * v2
-        #input = np.concatenate((input, v3), axis=1)
-        target = np.array([np.array(v) for v in target])
-        input_ = Variable(torch.from_numpy(input)).float()
-        target_ = Variable(torch.from_numpy(target)).float()
-        outputs = model(input_)
 
-        loss = nn.functional.binary_cross_entropy(outputs, target_)
-        accuracy = torch.mean(((outputs > .5).float() == target_).float())
-        loss.backward()
-        optimizer.step()
+for k in range(2):
+    if k == 0: optimizer = optim.Adam(model1.parameters())
+    if k == 1: optimizer = optim.Adam(model2.parameters())
+    optimizer.zero_grad()
 
-        loss_acc[i + j * len(inputs)] = loss.item()
-        if i % 101 == 100:
-            temp_loss = loss_acc[:i + j * len(inputs)]
-            print(i + j * len(inputs), temp_loss[-100].mean())
+    for j in range(8):
+        for i, (input, target) in enumerate(zip(inputs, targets)):
+            input = np.array([np.array(v) for v in input])
+            v1, v2 = np.split(input, 2, 1)
+            v3 = v1 * v2
+            if k == 1: input = np.concatenate((input, v3), axis=1)
+            target = np.array([np.array(v) for v in target])
+            input_ = Variable(torch.from_numpy(input)).float()
+            target_ = Variable(torch.from_numpy(target)).float()
+            if k == 0: outputs = model1(input_)
+            if k == 1: outputs = model2(input_)
+
+            if i != 0:
+                loss = nn.functional.binary_cross_entropy(outputs, target_)
+                loss.backward()
+                optimizer.step()
+
+                loss_acc[i + j * len(inputs)] = loss.item()
+            else:
+                accuracy = torch.mean((torch.squeeze((outputs > .5).float()) == target_).float())
+                temp_loss = loss_acc[:i + j * len(inputs)]
+                xs[k].append(i + j * len(inputs))
+                ys[k].append(accuracy)#temp_loss[-100].mean())
+                print(accuracy)
+
+plt.plot(xs[0], ys[0], label='Model without multiplicative interactions')
+plt.plot(xs[1], ys[1], label='Model with multiplicative interactions')
+plt.xlabel('Number of batches')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+# time.sleep(100000)
+
 
 #funcan: 21, 14, 12, 5, 4
